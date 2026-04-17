@@ -1,0 +1,52 @@
+# Shadow_Shield — auditd Forensic Evidence Rules
+# Apply: sudo cp evidence.rules /etc/audit/rules.d/ && sudo auditctl -R evidence.rules
+#
+# CONFIGURE: Replace /home/shadowed with your home directory
+
+# ===== Process Execution =====
+# Log every process execution (catches any malware/tools run)
+-a always,exit -F arch=b64 -S execve -k exec_log
+
+# ===== Credential Files =====
+# Watch sensitive credential files for any access
+-w /home/shadowed/.ssh/ -p rwxa -k cred_ssh
+-w /home/shadowed/.claude/.credentials.json -p rwxa -k cred_claude
+-w /home/shadowed/.config/gh/hosts.yml -p rwxa -k cred_github
+-w /home/shadowed/.secrets -p rwxa -k cred_secrets
+-w /home/shadowed/.gnupg/ -p rwxa -k cred_gpg
+
+# ===== Authentication & Login =====
+-w /var/log/auth.log -p wa -k auth_log
+-w /etc/pam.d/ -p wa -k pam_config
+-w /etc/shadow -p rwxa -k shadow_access
+-w /etc/passwd -p wa -k passwd_mod
+
+# ===== Privilege Escalation =====
+-w /usr/bin/sudo -p x -k priv_sudo
+-w /usr/bin/su -p x -k priv_su
+-w /usr/bin/pkexec -p x -k priv_pkexec
+-a always,exit -F arch=b64 -S setuid -S setgid -k priv_escalation
+
+# ===== Kernel Module Loading (rootkit detection) =====
+-a always,exit -F arch=b64 -S init_module -S finit_module -S delete_module -k kernel_module
+
+# ===== Network =====
+# New outbound connections (catches reverse shells, C2 callbacks)
+-a always,exit -F arch=b64 -S connect -k net_connect
+
+# ===== System Config Changes =====
+-w /etc/nftables.conf -p wa -k firewall_config
+-w /etc/sysctl.d/ -p wa -k sysctl_config
+-w /etc/crontab -p wa -k cron_config
+-w /var/spool/cron/ -p wa -k cron_spool
+-w /etc/NetworkManager/ -p wa -k network_config
+
+# ===== SSH Server =====
+-w /etc/ssh/sshd_config -p wa -k sshd_config
+-w /etc/ssh/authorized_keys -p rwxa -k ssh_authkeys
+-w /home/shadowed/.ssh/authorized_keys -p rwxa -k ssh_authkeys_user
+
+# ===== File Integrity (key binaries) =====
+-w /usr/bin/nmap -p x -k recon_tool
+-w /usr/bin/tcpdump -p x -k recon_tool
+-w /usr/bin/wireshark -p x -k recon_tool
