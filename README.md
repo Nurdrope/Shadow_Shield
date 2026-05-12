@@ -55,6 +55,7 @@ Shadow_Shield/
 │   ├── arp-watchdog.sh             # ARP spoof detection daemon
 │   ├── arp-watchdog.service        # systemd service for watchdog
 │   ├── evidence.rules              # auditd forensic rules
+│   ├── kismet-safe-start.sh        # Safe Kismet launcher (monitor mode)
 │   ├── security-check.sh           # Full security dashboard
 │   └── security-panel.sh           # XFCE panel indicator
 └── privacy/
@@ -73,6 +74,8 @@ Shows:
 - Firewall drops (port scans, probes)
 - Kill-switch blocks (VPN leak attempts)
 - ARP spoof alerts (MITM attacks)
+- **Evil Twin & MITM Signatures** (New: MAC Clusters & Deauth Floods)
+- **Proximity Detection** (New: Alerts on high-signal attackers)
 - Credential file access (unauthorized reads)
 - Privilege escalation events
 - Kernel module loads (rootkit detection)
