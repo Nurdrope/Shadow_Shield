@@ -19,7 +19,7 @@ echo ""
 
 # Required packages
 echo "[1/7] Installing dependencies..."
-apt install -y nftables auditd fail2ban xfce4-genmon-plugin 2>/dev/null || true
+apt install -y nftables auditd fail2ban xfce4-genmon-plugin kismet 2>/dev/null || true
 
 # Kernel hardening
 echo "[2/7] Applying kernel hardening..."
@@ -44,9 +44,13 @@ echo "[5/7] Installing monitoring tools..."
 cp monitoring/arp-watchdog.sh /usr/local/bin/
 cp monitoring/security-check.sh /usr/local/bin/
 cp monitoring/security-panel.sh /usr/local/bin/
+cp monitoring/kismet-safe-start.sh /usr/local/bin/
+cp monitoring/kismet-lockdown.sh /usr/local/bin/
 chmod 755 /usr/local/bin/arp-watchdog.sh
 chmod 755 /usr/local/bin/security-check.sh
 chmod 755 /usr/local/bin/security-panel.sh
+chmod 755 /usr/local/bin/kismet-safe-start.sh
+chmod 755 /usr/local/bin/kismet-lockdown.sh
 
 # ARP watchdog service
 echo "[6/7] Enabling ARP spoof detection..."
