@@ -95,7 +95,7 @@ Green = all clear. Red = something needs attention. Hover for details.
 - Debian-based Linux (tested on Kali)
 - WireGuard VPN configured
 - XFCE desktop (for panel indicator, optional)
-- Packages: `nftables`, `auditd`, `fail2ban`, `xfce4-genmon-plugin`
+- Packages: `nftables`, `auditd`, `fail2ban`, `kismet`, `xfce4-genmon-plugin`
 
 ## How it works on any network
 
