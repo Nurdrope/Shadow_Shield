@@ -24,16 +24,33 @@ sudo iw dev $INTERFACE set type monitor
 sudo ip link set $INTERFACE up
 
 # 4. Verify
-MODE=$(iw dev $INTERFACE info | grep type | awk '{print $2}')
+MODE=$(iw dev $INTERFACE info 2>/dev/null | grep type | awk '{print $2}')
 if [ "$MODE" == "monitor" ]; then
     echo "[✓] SUCCESS: $INTERFACE is now in MONITOR mode."
+
+    # Check if Kismet is already running
+    if pgrep -x kismet > /dev/null; then
+        echo "[!] Kismet already running. Killing old instance..."
+        sudo pkill -9 kismet 2>/dev/null
+        sleep 2
+    fi
+
     echo "[*] Launching Kismet in the background..."
-    # We use --no-auto-log to keep things clean as requested before
-    sudo kismet -i $INTERFACE --no-auto-log &
-    echo ""
-    echo "--- SETUP COMPLETE ---"
-    echo "Kismet is running. Access the UI at: http://localhost:2501"
-    echo "Your main network (wlan0) should still be connected."
+    sudo kismet -d 2>/dev/null &
+    sleep 3
+
+    if pgrep -x kismet > /dev/null; then
+        echo "[✓] Kismet started successfully."
+        echo ""
+        echo "--- SETUP COMPLETE ---"
+        echo "Kismet is running. Access the UI at: http://localhost:2501"
+        echo "Your main network (wlan0) should still be connected."
+    else
+        echo "[!] ERROR: Kismet failed to start. Check permissions."
+        exit 1
+    fi
 else
-    echo "[!] ERROR: Failed to set monitor mode. You may need to replug the card."
+    echo "[!] ERROR: Failed to set monitor mode on $INTERFACE."
+    echo "[!] Try: sudo iw phy phy1 set regulatory.custom_regulatory true"
+    exit 1
 fi
