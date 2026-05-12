@@ -90,6 +90,26 @@ Add to XFCE panel via Generic Monitor plugin:
 
 Green = all clear. Red = something needs attention. Hover for details.
 
+## Wireless Reconnaissance (Kismet)
+
+Launch wireless network monitoring without killing your main connection:
+
+```bash
+# Safe mode: NetworkManager ignores wlan1, main network stays up
+sudo /usr/local/bin/kismet-safe-start.sh
+
+# Lockdown mode: Aggressive monitor mode, better for hostile environments
+sudo /usr/local/bin/kismet-lockdown.sh
+```
+
+Access the Kismet web UI at: `http://localhost:2501`
+
+The security dashboard automatically detects Evil Twin and MITM signatures from Kismet's database:
+- MAC clustering (Pineapple detection)
+- Deauth floods (active attacks)
+- Beacon storms (rogue AP overload)
+- Proximity alerts (distance to attacker)
+
 ## Requirements
 
 - Debian-based Linux (tested on Kali)
