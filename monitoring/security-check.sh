@@ -49,30 +49,35 @@ echo ""
 echo "[5] EVIL TWIN & MITM SIGNATURES"
 echo "---"
 # Use the most recent Kismet DB for live forensics
-LATEST_DB=$(ls -t /home/shadowed/Kismet-*.kismet 2>/dev/null | head -n 1)
-if [ -n "$LATEST_DB" ]; then
-    # 1. Detection of MAC Clusters (BSSID Spoofing/Pineapple)
-    # Checks for MACs sharing the same last 3 octets (common in Virtual APs)
-    CLUSTERS=$(sqlite3 "$LATEST_DB" "SELECT substr(devmac, 10, 8) as suffix, count(*) as c FROM devices GROUP BY suffix HAVING c > 2 ORDER BY c DESC LIMIT 1;" 2>/dev/null)
-    if [ -n "$CLUSTERS" ]; then
-        SUFFIX=$(echo "$CLUSTERS" | cut -d'|' -f1)
-        COUNT=$(echo "$CLUSTERS" | cut -d'|' -f2)
-        echo "  [!] ALERT: MAC Cluster Detected ($COUNT devices ending in ...$SUFFIX)"
-        echo "      Signature: Potential WiFi Pineapple or Rogue AP Spoofer."
-    fi
+LATEST_DB=$(find /home/shadowed /root -name "Kismet-*.kismet" -type f 2>/dev/null | sort -V | tail -n 1)
+if [ -n "$LATEST_DB" ] && [ -f "$LATEST_DB" ]; then
+    # Verify DB is accessible and not locked
+    if ! sqlite3 "$LATEST_DB" "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
+        echo "  Kismet database is locked or corrupted (skipped)"
+    else
+        # 1. Detection of MAC Clusters (BSSID Spoofing/Pineapple)
+        # Look for multiple APs with same OUI prefix (suspicious pattern)
+        CLUSTERS=$(sqlite3 "$LATEST_DB" "SELECT substr(mac, 1, 8) as oui, COUNT(*) as cnt FROM devices WHERE type LIKE '%AP%' GROUP BY oui HAVING cnt > 3 ORDER BY cnt DESC LIMIT 1;" 2>/dev/null)
+        if [ -n "$CLUSTERS" ]; then
+            OUI=$(echo "$CLUSTERS" | cut -d'|' -f1)
+            COUNT=$(echo "$CLUSTERS" | cut -d'|' -f2)
+            echo "  [!] ALERT: MAC Cluster Detected ($COUNT APs with OUI $OUI)"
+            echo "      Signature: Possible WiFi Pineapple or Evil Twin network."
+        fi
 
-    # 2. Deauth Flood Detection
-    DEAUTHS=$(sqlite3 "$LATEST_DB" "SELECT count(*) FROM alerts WHERE header LIKE '%DEAUTH%';" 2>/dev/null)
-    if [ "$DEAUTHS" -gt 0 ]; then
-        echo "  [!] ALERT: $DEAUTHS Deauthentication events found in Kismet logs."
-        echo "      Signature: Active attempt to kick clients from secure Wi-Fi."
-    fi
+        # 2. Strong Signal Proximity Detection (hostile device very close)
+        CLOSE=$(sqlite3 "$LATEST_DB" "SELECT COUNT(*) FROM devices WHERE signal_dbm > -40 AND type NOT LIKE '%AP%';" 2>/dev/null)
+        if [ "$CLOSE" -gt 0 ]; then
+            echo "  [!] WARNING: $CLOSE devices with strong signal (> -40dBm)"
+            echo "      Attacker may be within 10-20 feet (very close)."
+        fi
 
-    # 3. High Proximity Detection
-    PROXIMITY=$(sqlite3 "$LATEST_DB" "SELECT devmac FROM devices WHERE strongest_signal > -25 AND type != 'dot11_ap' LIMIT 1;" 2>/dev/null)
-    if [ -n "$PROXIMITY" ]; then
-        echo "  [!] WARNING: High Proximity Device Detected ($PROXIMITY)"
-        echo "      Signal is > -25dBm. Attacker may be within 5-10 feet."
+        # 3. Check for massive beacon storms (signature of rogue AP)
+        BEACONS=$(sqlite3 "$LATEST_DB" "SELECT COUNT(*) FROM packets WHERE type LIKE '%beacon%' AND ts > datetime('now', '-10 minutes');" 2>/dev/null)
+        if [ "$BEACONS" -gt 5000 ]; then
+            echo "  [!] ALERT: Beacon storm detected ($BEACONS in 10 min)"
+            echo "      Signature: Possible rogue or misconfigured AP flooding network."
+        fi
     fi
 else
     echo "  Kismet database not found (skipped)"
@@ -82,33 +87,57 @@ echo ""
 echo "[6] GATEWAY INTEGRITY"
 echo "---"
 CURRENT_GW_IP=$(ip route | awk '/default via/{print $3; exit}')
-CURRENT_GW_MAC=$(arp -n "$CURRENT_GW_IP" 2>/dev/null | awk '/ether/{print $3}')
-if [ -f /var/log/arp-watchdog.log ]; then
-    LEARNED_MAC=$(grep "Learned gateway $CURRENT_GW_IP" /var/log/arp-watchdog.log | tail -1 | awk '{print $NF}')
-    if [ -n "$CURRENT_GW_MAC" ] && [ -n "$LEARNED_MAC" ] && [ "$CURRENT_GW_MAC" != "$LEARNED_MAC" ]; then
-        echo "  [!!!] CRITICAL: Current Gateway MAC ($CURRENT_GW_MAC) DOES NOT MATCH learned MAC ($LEARNED_MAC)!"
+if [ -z "$CURRENT_GW_IP" ]; then
+    echo "  No default gateway (VPN kill-switch active?)"
+else
+    CURRENT_GW_MAC=$(arp -n "$CURRENT_GW_IP" 2>/dev/null | awk '/ether/{print $3}')
+    if [ -f /var/log/arp-watchdog.log ]; then
+        LEARNED_MAC=$(grep "Learned gateway $CURRENT_GW_IP" /var/log/arp-watchdog.log | tail -1 | awk '{print $NF}' | tr -d '[]')
+        if [ -n "$CURRENT_GW_MAC" ] && [ -n "$LEARNED_MAC" ] && [ "$CURRENT_GW_MAC" != "$LEARNED_MAC" ]; then
+            echo "  [!!!] CRITICAL: Gateway MAC mismatch!"
+            echo "       Current: $CURRENT_GW_MAC"
+            echo "       Learned: $LEARNED_MAC"
+            echo "       POSSIBLE ARP POISONING ATTACK"
+        else
+            echo "  Gateway $CURRENT_GW_IP verified: MAC $CURRENT_GW_MAC (learned)"
+        fi
     else
-        echo "  Gateway IP $CURRENT_GW_IP verified: MAC $CURRENT_GW_MAC matches learned state."
+        echo "  ARP watchdog log not found. Gateway $CURRENT_GW_IP: $CURRENT_GW_MAC"
     fi
 fi
 
 echo ""
 echo "[7] CREDENTIAL FILE ACCESS"
 echo "---"
-ausearch -k cred_ssh -k cred_claude -k cred_github -k cred_secrets -k cred_gpg --start today 2>/dev/null | grep -c "type=SYSCALL"
-echo "  access events today"
-ausearch -k cred_ssh -k cred_claude -k cred_github -k cred_secrets --start today 2>/dev/null | grep "exe=" | sort -u | tail -10
+CRED_ACCESSES=$(ausearch -k cred_access --start today 2>/dev/null | grep -c "type=SYSCALL")
+if [ -n "$CRED_ACCESSES" ] && [ "$CRED_ACCESSES" -gt 0 ]; then
+    echo "  $CRED_ACCESSES credential file access events today"
+    ausearch -k cred_access --start today 2>/dev/null | grep "exe=" | awk -F'exe=' '{print $2}' | sort | uniq -c | sort -rn | head -5
+else
+    echo "  No credential file access detected (clean)"
+fi
 
 echo ""
 echo "[8] PRIVILEGE ESCALATION"
 echo "---"
-ausearch -k priv_sudo -k priv_su -k priv_pkexec --start today 2>/dev/null | grep "exe=" | awk -F'exe=' '{print $2}' | sort | uniq -c | sort -rn | head -5
+PRIV_EVENTS=$(ausearch -k priv_escalation --start today 2>/dev/null | grep -c "type=SYSCALL")
+if [ -n "$PRIV_EVENTS" ] && [ "$PRIV_EVENTS" -gt 0 ]; then
+    echo "  $PRIV_EVENTS privilege escalation events today:"
+    ausearch -k priv_escalation --start today 2>/dev/null | grep "exe=" | awk -F'exe=' '{print $2}' | sort | uniq -c | sort -rn | head -5
+else
+    echo "  No privilege escalation events (clean)"
+fi
 
 echo ""
 echo "[9] KERNEL MODULES LOADED"
 echo "---"
-ausearch -k kernel_module --start today 2>/dev/null | grep -c "type=SYSCALL"
-echo "  module load events today"
+MODULE_LOADS=$(ausearch -k kernel_module --start today 2>/dev/null | grep -c "type=SYSCALL")
+if [ "$MODULE_LOADS" -gt 0 ]; then
+    echo "  [!] $MODULE_LOADS kernel module load events today"
+    ausearch -k kernel_module --start today 2>/dev/null | grep "name=" | awk -F'name=' '{print $2}' | sort -u | head -10
+else
+    echo "  No kernel module loads today (clean)"
+fi
 
 echo ""
 echo "[10] FAILED LOGINS"
