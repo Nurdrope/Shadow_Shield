@@ -103,7 +103,7 @@ This:
 
 ## Credits
 
-Red-team testing by Nurdrope. Found via network layer penetration testing (May 12, 2026).
+Discovered via network-layer penetration testing (May 12, 2026).
 
 ---
 

@@ -2,7 +2,7 @@
 
 Linux security hardening + network privacy + real-time intrusion detection for hostile shared networks.
 
-Built for people who need to stay safe on networks they don't control — shelters, cafes, libraries, shared housing. Designed for Debian/Kali Linux with WireGuard VPN.
+Built for untrusted networks you don't control — public WiFi, hotels, shared housing, travel. Designed for Debian/Kali Linux with WireGuard VPN.
 
 ## What it does
 
@@ -140,7 +140,7 @@ The security dashboard automatically detects Evil Twin and MITM signatures from 
 
 ## How it works on any network
 
-Walk into any WiFi (shelter, library, cafe):
+Walk into any untrusted WiFi (hotel, library, cafe):
 1. Connect — fake MAC, no hostname broadcast
 2. Captive portal — works (all private subnets allowed)
 3. VPN connects — all traffic encrypted
@@ -151,9 +151,3 @@ Walk into any WiFi (shelter, library, cafe):
 ## License
 
 MIT
-
----
-
-*Built from the streets. For people who need it most.*
-
-*Ghost with a tripwire.*
