@@ -1,7 +1,7 @@
 # Shadow_Shield — auditd Forensic Evidence Rules
 # Apply: sudo cp evidence.rules /etc/audit/rules.d/ && sudo auditctl -R evidence.rules
 #
-# CONFIGURE: Replace /home/user with your home directory
+# NOTE: __HOME_DIR__ is substituted by install.sh with the target user's home.
 
 # ===== Process Execution =====
 # Log every process execution (catches any malware/tools run)
@@ -9,11 +9,11 @@
 
 # ===== Credential Files =====
 # Watch sensitive credential files for any access
--w /home/user/.ssh/ -p rwxa -k cred_ssh
--w /home/user/.claude/.credentials.json -p rwxa -k cred_claude
--w /home/user/.config/gh/hosts.yml -p rwxa -k cred_github
--w /home/user/.secrets -p rwxa -k cred_secrets
--w /home/user/.gnupg/ -p rwxa -k cred_gpg
+-w __HOME_DIR__/.ssh/ -p rwxa -k cred_ssh
+-w __HOME_DIR__/.claude/.credentials.json -p rwxa -k cred_claude
+-w __HOME_DIR__/.config/gh/hosts.yml -p rwxa -k cred_github
+-w __HOME_DIR__/.secrets -p rwxa -k cred_secrets
+-w __HOME_DIR__/.gnupg/ -p rwxa -k cred_gpg
 
 # ===== Authentication & Login =====
 -w /var/log/auth.log -p wa -k auth_log
@@ -44,7 +44,7 @@
 # ===== SSH Server =====
 -w /etc/ssh/sshd_config -p wa -k sshd_config
 -w /etc/ssh/authorized_keys -p rwxa -k ssh_authkeys
--w /home/user/.ssh/authorized_keys -p rwxa -k ssh_authkeys_user
+-w __HOME_DIR__/.ssh/authorized_keys -p rwxa -k ssh_authkeys_user
 
 # ===== File Integrity (key binaries) =====
 -w /usr/bin/nmap -p x -k recon_tool

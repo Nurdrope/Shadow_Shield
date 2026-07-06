@@ -33,12 +33,33 @@ Built for people who need to stay safe on networks they don't control — shelte
 git clone https://github.com/Nurdrope/Shadow_Shield.git
 cd Shadow_Shield
 
-# Review and customize configs (see CONFIGURE comments in each file)
-# At minimum, set your WireGuard interface name in:
-#   - firewall/nftables.conf
-#   - monitoring/security-panel.sh
+# See exactly what it will do — changes nothing:
+sudo ./install.sh --dry-run
 
+# Install (auto-detects your WireGuard interface — no manual editing):
 sudo ./install.sh
+```
+
+The installer is **safe by default**:
+
+- **Auto-detects** your WireGuard interface and fwmark — no config editing.
+- **Won't lock you out.** If no live tunnel is found, it refuses to install the
+  outbound kill-switch (which would drop all your internet) and offers an
+  inbound-only firewall instead.
+- **Auto-revert.** The kill-switch is applied on a timer and rolls back
+  automatically unless you confirm you still have connectivity — the same
+  anti-lockout trick used for remote firewall changes over SSH.
+- **Reversible.** Every overwritten file is backed up to
+  `/var/backups/shadow_shield/`, and an uninstaller is written to
+  `/usr/local/sbin/shadow_shield-uninstall.sh`.
+
+```bash
+# Useful flags:
+sudo ./install.sh --no-killswitch          # inbound firewall only
+sudo ./install.sh --iface wg0              # force a specific interface
+sudo ./install.sh --yes                    # non-interactive (uses a real
+                                           #   connectivity self-test to confirm)
+sudo ./install.sh --revert-timeout 120     # seconds before auto-revert
 ```
 
 ## File Structure
