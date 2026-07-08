@@ -12,7 +12,9 @@ connected device that is **not** on your allow-list is a rogue: alerted, and
 | `ble-provision.sh`         | Seeds the allow-list from your ALREADY-paired devices (run at install) |
 | `ble-link-monitor.sh`      | The monitor loop (link quality + rogue detection/enforcement) |
 | `ble-panel.sh`             | XFCE genmon panel widget (green/yellow/gray + red "BLE ROGUE") |
-| `ble-link-monitor.service` | systemd **--user** unit |
+| `ble-link-monitor.service` | systemd **--user** unit for the monitor |
+| `bt-pairable-off.sh`       | Sets the adapter non-pairable at session start (preventive) |
+| `bt-pairable-off.service`  | systemd **--user** oneshot for the above |
 
 ## Runs as a user service (not system)
 Unlike `arp-watchdog` (system, `/usr/local/bin`, `multi-user.target`), this runs
@@ -76,18 +78,38 @@ keyboard), so blocking is gated on having a fallback.
 
 Rogue alerts fire **once per connection** (not every poll) and clear on disconnect.
 
-## Hardening tip (preventive)
-Enforcement is reactive. To stop new pairings entirely, keep the adapter
-non-pairable except when you're deliberately adding a device:
+## Preventive hardening: non-pairable by default
+The monitor's enforcement is *reactive* (it responds after a device connects).
+`bt-pairable-off.sh` adds the *preventive* layer: it sets the adapter
+**non-pairable** at session start, so no NEW device can bond unless you
+deliberately re-enable pairing. Combined with enforcement that's defense in
+depth — prevent, detect, respond.
+
 ```bash
-bluetoothctl pairable off      # nothing new can bond
-bluetoothctl pairable on       # ...only when YOU want to pair, then off again
+install -m755 bt-pairable-off.sh ~/.local/bin/
+install -m644 bt-pairable-off.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now bt-pairable-off.service
 ```
 
+It has a retry loop that waits for the controller to power up, and logs the
+result to `security-events.log`. Existing bonded devices still reconnect
+normally — `pairable off` only blocks *new* bonds.
+
+**Honest scope — pre-login window:** this is a *user* service, so it applies at
+login, not at kernel boot. There's a brief window at boot (before you log in)
+where the adapter could still be pairable. For a single-user laptop that's
+negligible (Discoverable is off and no one's at the machine pre-login). If you
+need it closed at true boot, make it a *system* service instead
+(`/etc/systemd/system/`, `WantedBy=bluetooth.target`) — that needs root.
+
 ## Adding new gear
-Pair it, then re-baseline and restart:
+With non-pairable hardening on, pairing is a deliberate act:
 ```bash
-ble-provision.sh
+bluetoothctl pairable on                          # open the window
+# ...pair the device via bluetoothctl / your DE...
+ble-provision.sh                                  # add it to the allow-list
+bluetoothctl pairable off                         # re-lock
 systemctl --user restart ble-link-monitor.service
 ```
 (Or add its MAC to `~/.config/ble-monitor/trusted.conf` by hand.) Anything you

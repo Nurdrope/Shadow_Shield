@@ -1,0 +1,10 @@
+[Unit]
+Description=Shadow_Shield — set Bluetooth adapter non-pairable at session start
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/bt-pairable-off.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target
