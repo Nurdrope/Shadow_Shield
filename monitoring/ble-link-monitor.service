@@ -1,0 +1,12 @@
+[Unit]
+Description=Shadow_Shield BLE Link Health Monitor (allow-list + rogue-device alerting)
+After=bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/ble-link-monitor.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
