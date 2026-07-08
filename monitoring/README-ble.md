@@ -15,6 +15,8 @@ connected device that is **not** on your allow-list is a rogue: alerted, and
 | `ble-link-monitor.service` | systemd **--user** unit for the monitor |
 | `bt-pairable-off.sh`       | Sets the adapter non-pairable at session start (preventive) |
 | `bt-pairable-off.service`  | systemd **--user** oneshot for the above |
+| `bt-pairable-off-boot.sh`      | Same, but at BOOT — **system** (root) variant |
+| `bt-pairable-off-boot.service` | systemd **system** oneshot for the boot variant |
 
 ## Runs as a user service (not system)
 Unlike `arp-watchdog` (system, `/usr/local/bin`, `multi-user.target`), this runs
@@ -96,12 +98,25 @@ It has a retry loop that waits for the controller to power up, and logs the
 result to `security-events.log`. Existing bonded devices still reconnect
 normally — `pairable off` only blocks *new* bonds.
 
-**Honest scope — pre-login window:** this is a *user* service, so it applies at
-login, not at kernel boot. There's a brief window at boot (before you log in)
-where the adapter could still be pairable. For a single-user laptop that's
-negligible (Discoverable is off and no one's at the machine pre-login). If you
-need it closed at true boot, make it a *system* service instead
-(`/etc/systemd/system/`, `WantedBy=bluetooth.target`) — that needs root.
+**Honest scope — pre-login window:** the user service applies at login, not at
+kernel boot. There's a brief window at boot (before you log in) where the adapter
+could still be pairable. For a single-user laptop that's negligible (Discoverable
+is off and no one's at the machine pre-login).
+
+### True-boot (system) variant
+To close that window, install the **system** variant instead — it runs as root
+right after `bluetooth.service`, before any login. Needs root:
+```bash
+sudo install -m755 bt-pairable-off-boot.sh /usr/local/bin/
+sudo install -m644 bt-pairable-off-boot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now bt-pairable-off-boot.service
+# then retire the redundant per-user oneshot:
+systemctl --user disable --now bt-pairable-off.service
+```
+It logs to journald + syslog (`journalctl -u bt-pairable-off-boot` or
+`grep shadow-shield /var/log/syslog`). **Use EITHER the user oneshot OR the
+system service, not both** — the system one supersedes the user one.
 
 ## Adding new gear
 With non-pairable hardening on, pairing is a deliberate act:

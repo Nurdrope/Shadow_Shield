@@ -1,0 +1,12 @@
+[Unit]
+Description=Shadow_Shield — set Bluetooth adapter non-pairable at boot
+After=bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/bt-pairable-off-boot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
