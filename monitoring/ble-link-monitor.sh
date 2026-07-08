@@ -1,25 +1,30 @@
 #!/bin/bash
-# Shadow_Shield — BLE Link Health Monitor v4
+# Shadow_Shield — BLE Link Health Monitor v5
 # Uses Bluetooth LINK QUALITY (0-255, higher=better) as the real health signal.
 # Honest by design: reports link state; does NOT assert "jamming/attack" from
 # a single reading. Only flags "unstable" on genuinely repeated disconnects.
 #
-# Security model: tracks an allow-list of TRUSTED audio devices. Any connected
-# device NOT on that list raises a rogue-device ALERT (security log + desktop
-# notification) rather than being silently treated as a healthy link. So an
-# unauthorized pairing is detected, not rubber-stamped.
+# Security model — deny-by-default:
+#   * Allow-list of TRUSTED devices (seed it from your ALREADY-paired devices
+#     with ble-provision.sh — trust-on-first-use).
+#   * Any connected device NOT on the list is a rogue: alerted, and (if AUTO_KICK)
+#     disconnected + blocked so BlueZ refuses it thereafter.
+#   * Anti-lockout: a rogue keyboard/mouse (HID) is only auto-blocked when a
+#     non-Bluetooth input fallback exists (built-in/USB keyboard). Otherwise it is
+#     held + alerted, so you can't block your only way to type.
 #
 # Runs as a systemd --user service (see ble-link-monitor.service). Feeds a genmon
 # panel widget via /tmp/ble-monitor-status (see ble-panel.sh).
 
 # --- Trusted devices: MAC (UPPERCASE) -> friendly name ---
-# REPLACE these with your own paired devices. List them with:
-#     bluetoothctl devices Paired
-# Add one line per trusted device. Anything not listed here trips a rogue alert.
+# Inline defaults are placeholders. The REAL list should be generated from your
+# already-paired devices:  ble-provision.sh   ->  ~/.config/ble-monitor/trusted.conf
 declare -A TRUSTED=(
     ["AA:BB:CC:DD:EE:01"]="My Headphones"
     ["AA:BB:CC:DD:EE:02"]="My Earbuds"
 )
+TRUST_CONF="$HOME/.config/ble-monitor/trusted.conf"
+[ -f "$TRUST_CONF" ] && source "$TRUST_CONF"
 
 LOG_DIR="$HOME/.local/share/ble-monitor"
 MONITOR_LOG="$LOG_DIR/link-monitor.log"
@@ -36,6 +41,19 @@ LQ_WEAK=120      # >= this => fair; below => weak
 # Instability detection: many disconnects in a short window
 DROP_WINDOW=60   # seconds
 DROP_TRIP=4      # this many drops within the window => "unstable"
+
+# Enforcement: deny-by-default. 1 = disconnect + block untrusted devices on sight.
+# Ships as 0 (alert-only) so a fresh install can't kick your own gear before you
+# have provisioned the allow-list. Turn on AFTER running ble-provision.sh.
+# Re-admit a device later with: bluetoothctl unblock <MAC>
+AUTO_KICK=0
+
+# Anti-lockout: is there a non-Bluetooth keyboard (built-in/USB) to fall back on?
+# If yes, blocking a rogue BT keyboard can't lock you out, so we enforce uniformly.
+HAS_INPUT_FALLBACK=0
+if grep -qiE 'Name=.*(AT Translated|USB.*Keyboard|PS/2.*Keyboard)' /proc/bus/input/devices 2>/dev/null; then
+    HAS_INPUT_FALLBACK=1
+fi
 
 LAST_LQ=""
 LAST_STATE=""
@@ -54,7 +72,7 @@ notify() {
     notify-send -u critical -a "Shadow Shield" -i security-high "$1" "$2" 2>/dev/null
 }
 
-log "Link monitor started (v4) — allow-list: ${!TRUSTED[*]}"
+log "Link monitor started (v5) — allow-list: ${!TRUSTED[*]} | AUTO_KICK=$AUTO_KICK | input_fallback=$HAS_INPUT_FALLBACK"
 
 while true; do
     TS=$(date '+%Y-%m-%d %H:%M:%S')
@@ -83,14 +101,43 @@ while true; do
             # fire the alert once per connection, not every poll
             if [ -z "${ALERTED[$umac]+x}" ]; then
                 ALERTED[$umac]=1
-                uname=$(bluetoothctl info "$umac" 2>/dev/null \
-                        | grep -oP '^\s*Name:\s*\K.*' | head -1)
+                uinfo=$(bluetoothctl info "$umac" 2>/dev/null)
+                uname=$(grep -oP '^\s*Name:\s*\K.*' <<<"$uinfo" | head -1)
+                uicon=$(grep -oP '^\s*Icon:\s*\K.*' <<<"$uinfo" | head -1)
                 [ -z "$uname" ] && uname="(unknown name)"
-                log    "⚠ UNAUTHORIZED BLE device connected: $umac \"$uname\""
-                seclog "ALERT unauthorized-connect $umac \"$uname\""
-                notify "⚠ Rogue BLE device" "Untrusted device connected:
+                log    "⚠ UNAUTHORIZED BLE device connected: $umac \"$uname\" [${uicon:-unknown}]"
+                seclog "ALERT unauthorized-connect $umac \"$uname\" [${uicon:-unknown}]"
+
+                if [ "$AUTO_KICK" != "1" ]; then
+                    notify "⚠ Rogue BLE device" "Untrusted device connected:
 $uname
 $umac"
+                    continue
+                fi
+
+                # Enforcement on. Decide whether it's safe to block an input device.
+                is_hid=0
+                case "$uicon" in input-*|*keyboard*|*mouse*) is_hid=1 ;; esac
+
+                if [ "$is_hid" -eq 1 ] && [ "$HAS_INPUT_FALLBACK" -ne 1 ]; then
+                    # Anti-lockout: no non-BT keyboard to fall back on — do NOT block
+                    # the only input path. Disconnect to stop injection, then alert.
+                    bluetoothctl disconnect "$umac" >/dev/null 2>&1
+                    log    "→ HELD (input device, no fallback): disconnected but NOT blocked $umac"
+                    seclog "HOLD input-device $umac (no input fallback; manual review)"
+                    notify "⚠ Rogue INPUT device!" "Untrusted keyboard/mouse — disconnected, NOT blocked (no fallback keyboard). Review manually:
+$uname
+$umac"
+                else
+                    # Uniform deny-by-default: drop the link and block reconnects.
+                    bluetoothctl disconnect "$umac" >/dev/null 2>&1
+                    bluetoothctl block      "$umac" >/dev/null 2>&1
+                    log    "→ ENFORCE: disconnected + blocked $umac"
+                    seclog "ENFORCE disconnect+block $umac"
+                    notify "⛔ Rogue BLE device DENIED" "Untrusted device kicked & blocked:
+$uname
+$umac"
+                fi
             fi
         done
     fi
