@@ -1,0 +1,17 @@
+[Desktop Entry]
+# Shadow_Shield tray dropdown — NOT installed automatically.
+# To autostart at login, copy this file (with the Exec path below fixed to
+# wherever you cloned the repo) into ~/.config/autostart/:
+#
+#   mkdir -p ~/.config/autostart
+#   sed "s|__REPO_DIR__|$HOME/Shadow_Shield|" gui/shadow-shield-tray.desktop \
+#       > ~/.config/autostart/shadow-shield-tray.desktop
+#
+Type=Application
+Name=Shadow_Shield Tray
+Comment=Panel dropdown to toggle Shadow_Shield privacy/security features
+Exec=python3 __REPO_DIR__/gui/shadow-shield-tray.py
+Icon=security-high-symbolic
+Terminal=false
+Categories=System;Security;
+X-GNOME-Autostart-enabled=true

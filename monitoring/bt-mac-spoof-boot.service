@@ -1,0 +1,12 @@
+[Unit]
+Description=Shadow_Shield — randomize Bluetooth adapter public address at boot
+After=bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/bt-mac-spoof-boot.sh hci0
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
