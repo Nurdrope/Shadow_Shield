@@ -30,9 +30,19 @@ if [ "$MODE" == "monitor" ]; then
 
     # Check if Kismet is already running
     if pgrep -x kismet > /dev/null; then
-        echo "[!] Kismet already running. Killing old instance..."
-        sudo pkill -9 kismet 2>/dev/null
-        sleep 2
+        echo "[!] Kismet already running. Stopping old instance gracefully..."
+        # SIGTERM first — kismet closes its SQLite DB cleanly. pkill -9 was
+        # corrupting live databases and leaving giant .kismet-journal files.
+        sudo pkill -TERM kismet 2>/dev/null
+        for i in $(seq 1 15); do
+            pgrep -x kismet > /dev/null || break
+            sleep 1
+        done
+        if pgrep -x kismet > /dev/null; then
+            echo "[!] Kismet didn't exit after 15s — force killing (DB may need recovery)"
+            sudo pkill -9 kismet 2>/dev/null
+            sleep 2
+        fi
     fi
 
     echo "[*] Launching Kismet in the background..."
