@@ -1,8 +1,7 @@
 [Desktop Entry]
-# Shadow_Shield tray dropdown — NOT installed automatically.
-# To autostart at login, copy this file (with the Exec path below fixed to
-# wherever you cloned the repo) into ~/.config/autostart/:
-#
+# Shadow_Shield tray dropdown. install.sh renders this into
+# ~/.config/autostart/ (replacing __REPO_DIR__); use --no-tray to skip.
+# Manual install:
 #   mkdir -p ~/.config/autostart
 #   sed "s|__REPO_DIR__|$HOME/Shadow_Shield|" gui/shadow-shield-tray.desktop \
 #       > ~/.config/autostart/shadow-shield-tray.desktop

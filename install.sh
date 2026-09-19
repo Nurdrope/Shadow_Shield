@@ -19,6 +19,7 @@
 #   sudo ./install.sh --iface wg0     # force a specific WireGuard interface
 #   sudo ./install.sh --revert-timeout 120
 #   sudo ./install.sh --no-bt-mac-spoof  # skip Bluetooth MAC rotation at boot
+#   sudo ./install.sh --no-tray          # skip the panel tray toggle app autostart
 
 set -euo pipefail
 
@@ -31,6 +32,7 @@ DRY=0
 ASSUME_YES=0
 WANT_KILLSWITCH=1
 WANT_BT_MAC_SPOOF=1
+WANT_TRAY=1
 FORCE_IFACE=""
 REVERT_TIMEOUT=90
 
@@ -40,6 +42,7 @@ while [ $# -gt 0 ]; do
         --yes|-y)         ASSUME_YES=1 ;;
         --no-killswitch)  WANT_KILLSWITCH=0 ;;
         --no-bt-mac-spoof) WANT_BT_MAC_SPOOF=0 ;;
+        --no-tray)        WANT_TRAY=0 ;;
         --iface)          FORCE_IFACE="${2:-}"; shift ;;
         --revert-timeout) REVERT_TIMEOUT="${2:-90}"; shift ;;
         -h|--help)
@@ -188,11 +191,11 @@ render() {  # $1 = template, $2 = dest
 }
 
 # ---------------- 1. dependencies ----------------
-say "[1/8] Installing dependencies..."
-run apt install -y nftables auditd fail2ban xfce4-genmon-plugin kismet 2>/dev/null || true
+say "[1/9] Installing dependencies..."
+run apt install -y nftables auditd fail2ban xfce4-genmon-plugin kismet python3-gi gir1.2-gtk-3.0 2>/dev/null || true
 
 # ---------------- 2. kernel hardening (low risk, reversible) ----------------
-say "[2/8] Applying kernel hardening..."
+say "[2/9] Applying kernel hardening..."
 backup_file /etc/sysctl.d/99-hardening.conf
 backup_file /etc/modprobe.d/disable-protocols.conf
 run cp kernel/99-hardening.conf /etc/sysctl.d/
@@ -200,7 +203,7 @@ run cp kernel/disable-protocols.conf /etc/modprobe.d/
 run sysctl --system >/dev/null 2>&1 || true
 
 # ---------------- 3. firewall (the dangerous one) ----------------
-say "[3/8] Installing firewall${WANT_KILLSWITCH:+ with VPN kill-switch}..."
+say "[3/9] Installing firewall${WANT_KILLSWITCH:+ with VPN kill-switch}..."
 backup_file /etc/nftables.conf
 
 STAGED="$(mktemp)"
@@ -292,13 +295,13 @@ fi
 rm -f "$STAGED"
 
 # ---------------- 4. privacy ----------------
-say "[4/8] Configuring network privacy..."
+say "[4/9] Configuring network privacy..."
 backup_file /etc/NetworkManager/conf.d/00-privacy.conf
 run cp privacy/00-privacy.conf /etc/NetworkManager/conf.d/
 run systemctl disable --now avahi-daemon.socket avahi-daemon.service 2>/dev/null || true
 
 # ---------------- 5. monitoring scripts ----------------
-say "[5/8] Installing monitoring tools..."
+say "[5/9] Installing monitoring tools..."
 for f in security-panel.sh security-check.sh; do
     render "monitoring/$f" "/usr/local/bin/$f"
     run chmod 755 "/usr/local/bin/$f"
@@ -309,13 +312,13 @@ for f in arp-watchdog.sh kismet-safe-start.sh kismet-lockdown.sh; do
 done
 
 # ---------------- 6. ARP watchdog service ----------------
-say "[6/8] Enabling ARP spoof detection..."
+say "[6/9] Enabling ARP spoof detection..."
 run cp monitoring/arp-watchdog.service /etc/systemd/system/
 run systemctl daemon-reload
 run systemctl enable --now arp-watchdog.service 2>/dev/null || true
 
 # ---------------- 7. Bluetooth MAC rotation at boot ----------------
-say "[7/8] Enabling Bluetooth MAC rotation${WANT_BT_MAC_SPOOF:+ at boot}..."
+say "[7/9] Enabling Bluetooth MAC rotation${WANT_BT_MAC_SPOOF:+ at boot}..."
 if [ "$WANT_BT_MAC_SPOOF" = 1 ]; then
     run cp monitoring/bt-mac-spoof-boot.sh /usr/local/bin/
     run chmod 755 /usr/local/bin/bt-mac-spoof-boot.sh
@@ -326,8 +329,26 @@ else
     info "Skipped (--no-bt-mac-spoof)."
 fi
 
-# ---------------- 8. audit rules ----------------
-say "[8/8] Loading forensic audit rules..."
+# ---------------- 8. panel tray toggle app (autostart) ----------------
+say "[8/9] Enabling panel tray toggle app..."
+if [ "$WANT_TRAY" = 1 ]; then
+    AUTOSTART_DIR="$HOME_DIR/.config/autostart"
+    AUTOSTART_FILE="$AUTOSTART_DIR/shadow-shield-tray.desktop"
+    chmod 755 "$SCRIPT_DIR/gui/shadow-shield-tray.py" 2>/dev/null || true
+    run install -d -o "$TARGET_USER" -g "$TARGET_USER" "$AUTOSTART_DIR"
+    if [ "$DRY" = 1 ]; then
+        echo "  [dry-run] render gui/shadow-shield-tray.desktop -> $AUTOSTART_FILE"
+    else
+        sed "s|__REPO_DIR__|$SCRIPT_DIR|g" gui/shadow-shield-tray.desktop > "$AUTOSTART_FILE"
+        chown "$TARGET_USER:$TARGET_USER" "$AUTOSTART_FILE"
+    fi
+    info "Tray starts at next login (Exec points at $SCRIPT_DIR — re-run install.sh if you move the repo)."
+else
+    info "Skipped (--no-tray)."
+fi
+
+# ---------------- 9. audit rules ----------------
+say "[9/9] Loading forensic audit rules..."
 render monitoring/evidence.rules /etc/audit/rules.d/evidence.rules
 run auditctl -R /etc/audit/rules.d/evidence.rules 2>/dev/null || true
 
@@ -346,6 +367,7 @@ rm -f /etc/systemd/system/bt-mac-spoof-boot.service
 rm -f /usr/local/bin/{arp-watchdog.sh,security-check.sh,security-panel.sh,kismet-safe-start.sh,kismet-lockdown.sh,bt-mac-spoof-boot.sh}
 rm -f /etc/sysctl.d/99-hardening.conf /etc/modprobe.d/disable-protocols.conf
 rm -f /etc/NetworkManager/conf.d/00-privacy.conf
+rm -f $HOME_DIR/.config/autostart/shadow-shield-tray.desktop
 rm -f /etc/audit/rules.d/evidence.rules
 # restore firewall to pre-install state (fail open — never lock you out)
 nft flush ruleset 2>/dev/null || true
