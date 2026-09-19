@@ -40,6 +40,8 @@ PRIVACY_DIR = os.path.join(REPO_DIR, "privacy")
 NM_PRIVACY_CONF = "/etc/NetworkManager/conf.d/00-privacy.conf"
 BT_PAIRABLE_SCRIPT = "/usr/local/bin/bt-pairable-off-boot.sh"
 BT_PAIRABLE_SERVICE = "/etc/systemd/system/bt-pairable-off-boot.service"
+BT_MAC_SCRIPT = "/usr/local/bin/bt-mac-spoof-boot.sh"
+BT_MAC_SERVICE = "/etc/systemd/system/bt-mac-spoof-boot.service"
 
 
 def find_terminal():
@@ -102,8 +104,12 @@ def arp_watchdog_state():
     return systemctl_active("arp-watchdog.service")
 
 
+def bt_mac_rotation_installed():
+    return unit_file_exists(BT_MAC_SCRIPT) and unit_file_exists(BT_MAC_SERVICE)
+
+
 def bt_mac_rotation_state():
-    return systemctl_active("bt-mac-spoof-boot.service")
+    return bt_mac_rotation_installed() and systemctl_active("bt-mac-spoof-boot.service")
 
 
 def bt_pairable_off_installed():
@@ -134,8 +140,16 @@ TOGGLES = [
         "key": "btmac",
         "label": "Bluetooth MAC Rotation (boot)",
         "state": bt_mac_rotation_state,
-        "on": "sudo systemctl enable --now bt-mac-spoof-boot.service",
+        # First-run installs the script + unit, then enables it. Safe to re-run.
+        "on": (
+            f"sudo cp {MONITORING_DIR}/bt-mac-spoof-boot.sh {BT_MAC_SCRIPT} && "
+            f"sudo chmod +x {BT_MAC_SCRIPT} && "
+            f"sudo cp {MONITORING_DIR}/bt-mac-spoof-boot.service {BT_MAC_SERVICE} && "
+            "sudo systemctl daemon-reload && "
+            "sudo systemctl enable --now bt-mac-spoof-boot.service"
+        ),
         "off": "sudo systemctl disable --now bt-mac-spoof-boot.service",
+        "not_installed_suffix": lambda: "" if bt_mac_rotation_installed() else " (not installed)",
         # --now applies it immediately too, but rotation only really proves
         # itself across a real boot cycle (see the AX211 persistence caveat).
         "on_offer_reboot": True,
