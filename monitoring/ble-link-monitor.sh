@@ -55,10 +55,24 @@ if grep -qiE 'Name=.*(AT Translated|USB.*Keyboard|PS/2.*Keyboard)' /proc/bus/inp
     HAS_INPUT_FALLBACK=1
 fi
 
+# Bond-trust: a device holding a BlueZ pairing bond is trusted even if it is not
+# on the allow-list. Bonding only succeeds while YOU have opened pairing mode
+# (bt-pairable-off keeps it closed otherwise), and a spoofed MAC cannot reuse the
+# bond's keys — so a bond is stronger proof than a MAC match. Needed for gear that
+# changes its address on every re-pair (e.g. Logitech K850/M720 bump the last
+# byte). Set 0 for a strict MAC-only allow-list.
+TRUST_BONDED=1
+
 LAST_LQ=""
 LAST_STATE=""
 DROP_TIMES=()
 declare -A ALERTED=()   # MACs we've already fired a rogue-connect alert for
+declare -A BONDSEEN=()  # bonded (non-allow-listed) MACs we've logged as trusted
+declare -A HELD=()      # unbonded MACs spared while pairing mode is open
+
+is_bonded()    { bluetoothctl info "$1" 2>/dev/null | grep -q '^\s*Bonded: yes'; }
+pairing_open() { bluetoothctl show 2>/dev/null | grep -q '^\s*Pairable: yes'; }
+dev_name()     { bluetoothctl info "$1" 2>/dev/null | grep -oP '^\s*Name:\s*\K.*' | head -1; }
 
 log()     { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$MONITOR_LOG" 2>/dev/null; }
 seclog()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$SEC_LOG" 2>/dev/null; }
@@ -72,7 +86,7 @@ notify() {
     notify-send -u critical -a "Shadow Shield" -i security-high "$1" "$2" 2>/dev/null
 }
 
-log "Link monitor started (v5) — allow-list: ${!TRUSTED[*]} | AUTO_KICK=$AUTO_KICK | input_fallback=$HAS_INPUT_FALLBACK"
+log "Link monitor started (v5) — allow-list: ${!TRUSTED[*]} | AUTO_KICK=$AUTO_KICK | TRUST_BONDED=$TRUST_BONDED | input_fallback=$HAS_INPUT_FALLBACK"
 
 while true; do
     TS=$(date '+%Y-%m-%d %H:%M:%S')
@@ -88,6 +102,23 @@ while true; do
     for mac in "${CONNECTED[@]}"; do
         if [ -n "${TRUSTED[$mac]+x}" ]; then
             [ -z "$TRACK_MAC" ] && { TRACK_MAC="$mac"; TRACK_NAME="${TRUSTED[$mac]}"; }
+        elif [ "$TRUST_BONDED" = "1" ] && is_bonded "$mac"; then
+            # Trusted by bond. Not link-tracked (the LQ panel stays on allow-listed
+            # gear); logged once per connection for provenance.
+            if [ -z "${BONDSEEN[$mac]+x}" ]; then
+                BONDSEEN[$mac]=1; unset 'HELD[$mac]'
+                log    "✓ Bonded device trusted: $mac \"$(dev_name "$mac")\""
+                seclog "TRUST bonded $mac \"$(dev_name "$mac")\""
+            fi
+        elif [ "$TRUST_BONDED" = "1" ] && pairing_open; then
+            # Pairing mode is deliberately open: a new device connects BEFORE its
+            # bond completes, so don't kick it mid-pairing. Once bonded it is
+            # trusted above; if pairing closes without a bond it is a rogue below.
+            if [ -z "${HELD[$mac]+x}" ]; then
+                HELD[$mac]=1
+                log    "… Pairing in progress, holding: $mac \"$(dev_name "$mac")\""
+                seclog "HOLD pairing-open $mac \"$(dev_name "$mac")\""
+            fi
         else
             UNKNOWN_MACS+=("$mac")
         fi
@@ -149,6 +180,12 @@ $umac"
             unset 'ALERTED[$amac]'
             seclog "cleared unauthorized-connect $amac (disconnected)"
         fi
+    done
+    # Reset bond/hold bookkeeping for devices that have since disconnected
+    for amac in "${!BONDSEEN[@]}" "${!HELD[@]}"; do
+        still=0
+        for mac in "${CONNECTED[@]}"; do [ "$mac" = "$amac" ] && still=1; done
+        [ "$still" -eq 0 ] && unset 'BONDSEEN[$amac]' 'HELD[$amac]'
     done
 
     # ---- Trusted-device link health ----

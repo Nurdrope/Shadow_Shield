@@ -73,12 +73,32 @@ keyboard), so blocking is gated on having a fallback.
 | Situation | Panel | Enforcement (AUTO_KICK=1) |
 |-----------|-------|---------------------------|
 | Trusted device connected | 🔵 green / yellow / orange by link quality | — |
+| Bonded device, not on allow-list (`TRUST_BONDED=1`) | unchanged | — (trusted by bond) |
+| Unbonded device while **pairing mode is open** | unchanged | held, not kicked (pairing can finish) |
 | Nothing connected | ○ gray "BLE off" | — |
 | **Rogue audio device** | 🔴 red "BLE ROGUE" | disconnect + block |
 | **Rogue input + fallback keyboard** | 🔴 red "BLE ROGUE" | disconnect + block |
 | **Rogue input, NO fallback** | 🔴 red "BLE ROGUE" | disconnect + alert (no block) |
 
 Rogue alerts fire **once per connection** (not every poll) and clear on disconnect.
+
+## Bond-trust (`TRUST_BONDED=1`, default)
+Some gear changes its Bluetooth address every time it is re-paired — Logitech
+K850/M720 bump the last byte (`…:84` → `…:85` → `…:86`). With a MAC-only
+allow-list, every re-pair (e.g. after a reboot with BT MAC rotation) gets your own
+keyboard kicked and blocked.
+
+Bond-trust fixes that: a connected device that holds a BlueZ **pairing bond**
+(`Bonded: yes`) is trusted even if its MAC isn't on the allow-list. This is
+*stronger* evidence than a MAC match — a MAC is trivially spoofed, but a spoofed
+MAC can't reuse the bond's keys — and a bond can only be created while **you**
+have pairing mode open (which `bt-pairable-off` keeps closed by default).
+
+Pairing-window caveat: a new device connects *before* its bond completes, so while
+the adapter is pairable, unbonded devices are **held** (logged, not kicked) so
+pairing can finish. Once pairing closes, anything still unbonded is a rogue as
+usual. Keep the pairing window short. Set `TRUST_BONDED=0` for a strict MAC-only
+allow-list.
 
 ## Preventive hardening: non-pairable by default
 The monitor's enforcement is *reactive* (it responds after a device connects).
@@ -122,13 +142,15 @@ system service, not both** — the system one supersedes the user one.
 With non-pairable hardening on, pairing is a deliberate act:
 ```bash
 bluetoothctl pairable on                          # open the window
-# ...pair the device via bluetoothctl / your DE...
-ble-provision.sh                                  # add it to the allow-list
+# ...pair + trust + connect the device via bluetoothctl / your DE...
 bluetoothctl pairable off                         # re-lock
-systemctl --user restart ble-link-monitor.service
 ```
-(Or add its MAC to `~/.config/ble-monitor/trusted.conf` by hand.) Anything you
-don't add trips a rogue alert — that's intentional.
+With bond-trust on (default) that's it — the bond is the trust. With
+`TRUST_BONDED=0`, also add its MAC to `~/.config/ble-monitor/trusted.conf` and
+restart `ble-link-monitor.service`. (Don't re-run `ble-provision.sh` for this: it
+rebuilds the list from *currently* paired devices and drops anything not paired
+right now.) Any unbonded device that connects outside the pairing window trips a
+rogue alert — that's intentional.
 
 ## Logs
 - `~/.local/share/ble-monitor/link-monitor.log` — link state events
